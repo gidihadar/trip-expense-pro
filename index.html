@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07111f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Trip Expense">
+  <title>Trip Expense Pro</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <div class="brand">Trip Expense Pro</div>
+      <div id="activeTripLabel" class="muted small">נסיעה פעילה</div>
+    </div>
+    <button id="settingsBtn" class="iconBtn" aria-label="הגדרות">⚙️</button>
+  </header>
+
+  <main>
+    <section id="homeView" class="view active">
+      <section class="captureCard">
+        <div class="captureIcon">🧾</div>
+        <h1>צילום. שתי בחירות. סיימת.</h1>
+        <p class="muted">ה־OCR, הסכום, המטבע, העסק, התאריך והמיקום מתמלאים אוטומטית.</p>
+        <input id="cameraInput" type="file" accept="image/*" capture="environment" hidden>
+        <input id="libraryInput" type="file" accept="image/*" hidden>
+        <button id="cameraBtn" class="primary giant">📷 צילום קבלה</button>
+        <button id="libraryBtn" class="ghost">בחירה מהתמונות</button>
+      </section>
+
+      <section id="scanPanel" class="panel hidden">
+        <div class="scanGrid">
+          <div class="receiptFrame"><img id="receiptPreview" alt="Receipt"></div>
+          <div>
+            <div id="progressText" class="progressText">מכין OCR…</div>
+            <div class="progress"><div id="progressBar" class="progressBar"></div></div>
+            <div id="liveFacts" class="facts"></div>
+          </div>
+        </div>
+
+        <div class="selectorBlock">
+          <div class="selectorTitle"><span>1</span> סוג הוצאה</div>
+          <div id="categoryChips" class="chips"></div>
+          <div id="categorySuggestion" class="suggestion hidden"></div>
+        </div>
+
+        <div class="selectorBlock">
+          <div class="selectorTitle"><span>2</span> כרטיס / אמצעי תשלום</div>
+          <div id="cardChips" class="chips"></div>
+        </div>
+
+        <div id="autosaveHint" class="autosaveHint">לאחר שתי הבחירות הרשומה תישמר אוטומטית.</div>
+        <button id="cancelScanBtn" class="dangerGhost">ביטול</button>
+      </section>
+
+      <section class="panel">
+        <div class="sectionHead">
+          <div>
+            <h2>מצב הנסיעה</h2>
+            <div class="muted small">הוצאות שנשמרו במכשיר</div>
+          </div>
+          <button id="openReviewBtn" class="secondary">Review <span id="reviewBadge">0</span></button>
+        </div>
+        <div id="dashboard" class="dashboard"></div>
+      </section>
+
+      <section class="panel">
+        <div class="sectionHead">
+          <h2>הוצאות אחרונות</h2>
+          <button id="seeAllBtn" class="linkBtn">הצג הכל</button>
+        </div>
+        <div id="recentList" class="expenseList"></div>
+      </section>
+    </section>
+
+    <section id="expensesView" class="view">
+      <div class="sectionHead">
+        <div><h1>כל ההוצאות</h1><div id="expenseCountLabel" class="muted small"></div></div>
+        <button data-back class="iconBtn">←</button>
+      </div>
+      <div class="searchRow">
+        <input id="searchInput" placeholder="חיפוש בית עסק / קטגוריה / סכום">
+        <select id="statusFilter">
+          <option value="all">הכל</option>
+          <option value="ready">Ready</option>
+          <option value="review">Needs review</option>
+          <option value="duplicate">Duplicates</option>
+        </select>
+      </div>
+      <div id="allExpenseList" class="expenseList"></div>
+    </section>
+
+    <section id="reviewView" class="view">
+      <div class="sectionHead">
+        <div><h1>Review Queue</h1><div class="muted small">רק קבלות שהמערכת לא בטוחה לגביהן</div></div>
+        <button data-back class="iconBtn">←</button>
+      </div>
+      <div id="reviewList" class="expenseList"></div>
+    </section>
+
+    <section id="exportView" class="view">
+      <div class="sectionHead">
+        <div><h1>Export & Backup</h1><div class="muted small">ללא שרת וללא מנוי</div></div>
+        <button data-back class="iconBtn">←</button>
+      </div>
+      <div class="panel exportPanel">
+        <button id="exportZipBtn" class="primary">📦 ZIP מלא: CSV + קבלות</button>
+        <button id="exportCsvBtn" class="secondary">📊 CSV בלבד</button>
+        <button id="backupBtn" class="secondary">💾 גיבוי מלא JSON</button>
+        <label class="secondary fileLike">♻️ שחזור מגיבוי<input id="restoreInput" type="file" accept="application/json" hidden></label>
+        <p class="muted small">ה־ZIP כולל קובץ הוצאות ותמונות קבלה בשמות מסודרים.</p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottomNav">
+    <button data-nav="homeView" class="active">🏠<span>בית</span></button>
+    <button data-nav="expensesView">🧾<span>הוצאות</span></button>
+    <button data-nav="reviewView">⚠️<span>Review</span></button>
+    <button data-nav="exportView">📤<span>Export</span></button>
+  </nav>
+
+  <dialog id="settingsDialog">
+    <form method="dialog" class="dialogCard">
+      <div class="sectionHead">
+        <div><h2>הגדרות</h2><div class="muted small">מגדירים פעם אחת</div></div>
+        <button value="cancel" class="iconBtn">✕</button>
+      </div>
+
+      <label>שם הנסיעה הפעילה
+        <input id="tripNameInput" placeholder="Japan - Nov 2026">
+      </label>
+
+      <label>אמצעי תשלום — שורה לכל כרטיס
+        <textarea id="cardsInput" rows="5" placeholder="Corporate Visa •••• 1234&#10;Corporate Amex •••• 5678&#10;Cash"></textarea>
+      </label>
+
+      <label>כרטיס ברירת מחדל
+        <select id="defaultCardSelect"></select>
+      </label>
+
+      <label class="toggleRow">
+        <span>Reverse geocoding לעיר/מדינה (OpenStreetMap)</span>
+        <input id="reverseGeoToggle" type="checkbox">
+      </label>
+
+      <button id="saveSettingsBtn" value="default" class="primary">שמירת הגדרות</button>
+    </form>
+  </dialog>
+
+  <dialog id="editDialog">
+    <form method="dialog" class="dialogCard">
+      <div class="sectionHead">
+        <h2>בדיקה / תיקון</h2>
+        <button value="cancel" class="iconBtn">✕</button>
+      </div>
+      <img id="editImage" class="editImage" alt="Receipt">
+      <input id="editId" type="hidden">
+      <label>בית עסק<input id="editMerchant"></label>
+      <div class="two">
+        <label>סכום<input id="editAmount" inputmode="decimal"></label>
+        <label>מטבע<input id="editCurrency"></label>
+      </div>
+      <div class="two">
+        <label>תאריך<input id="editDate"></label>
+        <label>קטגוריה<select id="editCategory"></select></label>
+      </div>
+      <label>כרטיס<select id="editCard"></select></label>
+      <label>עיר / מדינה<input id="editPlace"></label>
+      <label>הערה אוטומטית / ידנית<input id="editNote"></label>
+      <button id="saveEditBtn" value="default" class="primary">שמירה וסימון Ready</button>
+      <button id="deleteBtn" value="cancel" class="danger">מחיקת ההוצאה</button>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast"></div>
+
+  <canvas id="workCanvas" hidden></canvas>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/tesseract.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
