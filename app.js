@@ -74,19 +74,19 @@ function chooseCard(card,silent=false){
 
 $("#cameraBtn").onclick=()=>$("#cameraInput").click();
 $("#libraryBtn").onclick=()=>$("#libraryInput").click();
-$("#cameraInput").onchange=e=>handleFile(e.target.files?.[0]);
-$("#libraryInput").onchange=e=>handleFile(e.target.files?.[0]);
+$("#cameraInput").onchange=e=>handleFile(e.target.files?.[0],"camera");
+$("#libraryInput").onchange=e=>handleFile(e.target.files?.[0],"library");
 $("#cancelScanBtn").onclick=resetScan;
 
-async function handleFile(file){
+async function handleFile(file,source="camera"){
   if(!file || scanning) return;
-  scanning=true; current=freshCurrent(); current.startedAt=new Date().toISOString();
+  scanning=true; current=freshCurrent(); current.startedAt=new Date().toISOString(); current.source=source;
   $("#scanPanel").classList.remove("hidden"); $("#receiptPreview").src=URL.createObjectURL(file);
   renderCategoryChips(); renderCardChips(); $("#liveFacts").innerHTML="";
   $("#categorySuggestion").classList.add("hidden");
   setProgress(6,"מכין תמונה…");
   try{
-    const [compressed, loc] = await Promise.all([compressImage(file), getLocation()]);
+    const [compressed, loc] = await Promise.all([compressImage(file), source==="camera" ? getLocation() : Promise.resolve(null)]);
     current.imageBlob=compressed;
     current.thumbUrl=URL.createObjectURL(compressed);
     current.imageHash=await sha256(compressed);
@@ -107,7 +107,7 @@ async function handleFile(file){
     const ret=await worker.recognize(URL.createObjectURL(compressed));
     await worker.terminate();
     current.ocrText=ret.data.text||"";
-    current.fields=parseReceipt(current.ocrText, region, ret.data.confidence||0);
+    current.fields=parseReceipt(current.ocrText, region, ret.data.confidence||0, current.source);
     current.fields.note=buildAutoNote(current.fields);
     suggestCategory();
     renderLiveFacts();
@@ -154,7 +154,7 @@ async function maybeAutoSave(){
 
 function needsReview(f,dup){
   return !!dup || !f.amount || !f.currency || !f.merchant || (f.overallConfidence||0)<68 ||
-    (f.fieldConfidence?.amount??0)<65;
+    (f.fieldConfidence?.amount??0)<65 || (f.fieldConfidence?.currency??0)<65;
 }
 function detectDuplicate(all,c){
   const f=c.fields||{};
@@ -241,16 +241,16 @@ async function reverseGeocode(loc){
   return place;
 }
 
-function parseReceipt(text, region, rawConf){
+function parseReceipt(text, region, rawConf, source="camera"){
   const lines=text.split(/\r?\n/).map(s=>s.replace(/\s+/g," ").trim()).filter(Boolean);
   const joined=lines.join(" ");
   const merchant=findMerchant(lines);
   const amountObj=findTotal(lines);
-  const currencyObj=detectCurrency(joined,region);
+  const currencyObj=detectCurrency(joined,region,source);
   const dateObj=findDate(joined,region.code);
   const taxObj=findNamedAmount(lines,/(tax|vat|gst|consumption tax|消費税|税額|ภาษี|מע.?מ)/i);
   const tipObj=findNamedAmount(lines,/(tip|gratuity|service charge|service|チップ|サービス料|טיפ)/i);
-  const overall=Math.round(clamp((rawConf*.45)+(amountObj.conf*.25)+(merchant.conf*.15)+(dateObj.conf*.15),0,100));
+  const overall=Math.round(clamp((rawConf*.38)+(amountObj.conf*.22)+(merchant.conf*.14)+(dateObj.conf*.12)+(currencyObj.conf*.14),0,100));
   return {
     merchant:merchant.value, amount:amountObj.value, currency:currencyObj.value,
     date:dateObj.value, tax:taxObj.value, tip:tipObj.value,
@@ -259,11 +259,78 @@ function parseReceipt(text, region, rawConf){
   };
 }
 function clamp(n,a,b){return Math.max(a,Math.min(b,n))}
-function detectCurrency(t,region){
-  const rules=[[/\bJPY\b|¥|￥|円/,"JPY"],[/\bUSD\b|US\$|\$/,"USD"],[/\bEUR\b|€/,"EUR"],[/\bGBP\b|£/,"GBP"],[/\bTHB\b|฿/,"THB"],[/\bILS\b|₪|ש.?ח/,"ILS"],[/\bKRW\b|₩|원/,"KRW"],[/\bAUD\b/,"AUD"],[/\bCAD\b/,"CAD"],[/\bSGD\b/,"SGD"]];
-  for(const [r,c] of rules) if(r.test(t)) return {value:c,conf:96};
-  if(region.currency) return {value:region.currency,conf:76};
-  return {value:"",conf:0};
+function detectCurrency(t,region,source="camera"){
+  // Currency is deliberately inferred from several independent signals.
+  // A single OCR'd glyph such as "$" -> "¥" is NOT allowed to decide the result.
+  const score={USD:0,JPY:0,EUR:0,GBP:0,THB:0,ILS:0,KRW:0,AUD:0,CAD:0,SGD:0,CNY:0};
+  const add=(c,n)=>{ if(score[c]!==undefined) score[c]+=n; };
+  const has=r=>r.test(t);
+
+  // Explicit ISO / textual currency codes are the strongest evidence.
+  const explicit=[
+    ["USD",/\bUSD\b|US\s*DOLLARS?|U\.?S\.?\s*DOLLARS?/i],
+    ["JPY",/\bJPY\b|JAPANESE\s+YEN/i],
+    ["EUR",/\bEUR\b|EUROS?/i],
+    ["GBP",/\bGBP\b|POUNDS?\s+STERLING/i],
+    ["THB",/\bTHB\b|BAHT/i],
+    ["ILS",/\bILS\b|NIS\b/i],
+    ["KRW",/\bKRW\b/i],
+    ["AUD",/\bAUD\b/i],
+    ["CAD",/\bCAD\b/i],
+    ["SGD",/\bSGD\b/i],
+    ["CNY",/\bCNY\b|RMB\b/i]
+  ];
+  for(const [c,r] of explicit) if(has(r)) add(c,140);
+
+  // Unambiguous or qualified symbols.
+  if(has(/US\s*\$/i)) add("USD",125);
+  if(has(/CA\s*\$|C\$/i)) add("CAD",125);
+  if(has(/AU\s*\$|A\$/i)) add("AUD",125);
+  if(has(/SG\s*\$|S\$/i)) add("SGD",125);
+  if(has(/€/)) add("EUR",110);
+  if(has(/£/)) add("GBP",110);
+  if(has(/฿/)) add("THB",110);
+  if(has(/₪|ש.?ח/)) add("ILS",110);
+  if(has(/₩|원/)) add("KRW",110);
+  if(has(/円/)) add("JPY",125);      // Japanese ideograph is strong evidence.
+  if(has(/¥|￥/)) add("JPY",45);     // Weak: OCR often confuses $ and ¥.
+  if(has(/\$/)) add("USD",55);       // Plain $ is common in US receipts but not unique.
+
+  // Receipt-address / language context.
+  if(has(/\b(UNITED STATES|U\.?S\.?A\.?|USA)\b/i)) add("USD",100);
+  if(has(/\b(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY)\s+\d{5}(?:-\d{4})?\b/)) add("USD",80);
+  if(has(/\b(PARKING|PARKING GARAGE|PARKING LOT|SALES TAX)\b/i) && has(/\d+\.\d{2}\b/)) add("USD",30);
+
+  if(has(/\b(JAPAN|TOKYO|OSAKA|NAGOYA|YOKOHAMA|KYOTO)\b/i)) add("JPY",90);
+  if(has(/[ぁ-んァ-ン一-龯]/) || has(/〒/)) add("JPY",65);
+  if(has(/\bTHAILAND\b/i) || has(/[ก-๙]/)) add("THB",80);
+  if(has(/\bISRAEL\b/i) || has(/[א-ת]/)) add("ILS",70);
+  if(has(/\bUNITED KINGDOM|ENGLAND|SCOTLAND|WALES\b/i)) add("GBP",75);
+  if(has(/\bCANADA\b/i)) add("CAD",75);
+  if(has(/\bAUSTRALIA\b/i)) add("AUD",75);
+  if(has(/\bSINGAPORE\b/i)) add("SGD",75);
+  if(has(/\bKOREA\b/i) || has(/[가-힣]/)) add("KRW",75);
+  if(has(/\bCHINA\b/i) || has(/人民币|人民幣/)) add("CNY",75);
+
+  // Decimal cents are common on USD receipts and uncommon on ordinary JPY totals.
+  // If OCR saw a yen glyph next to e.g. 50.00 in an English receipt, discount the yen guess.
+  if(has(/[¥￥]\s*\d+[.,]\d{2}\b/) && !has(/円|JPY|JAPAN|TOKYO|OSAKA|NAGOYA/i)){
+    add("JPY",-35);
+    add("USD",35);
+  }
+
+  // Current GPS is trusted only when the user took the photo now.
+  // It is intentionally ignored for images imported from the photo library.
+  if(source==="camera" && region && region.currency) add(region.currency,65);
+
+  const ranked=Object.entries(score).sort((a,b)=>b[1]-a[1]);
+  const [best,bestScore]=ranked[0], secondScore=ranked[1]?.[1]||0;
+  if(bestScore<=0) return {value:"",conf:0};
+
+  // Confidence depends on both absolute evidence and the gap to the runner-up.
+  const gap=bestScore-secondScore;
+  const conf=clamp(Math.round(48 + Math.min(34,bestScore/4) + Math.min(18,gap/4)),50,99);
+  return {value:best,conf};
 }
 function candidates(line){
   const res=[];
@@ -371,7 +438,7 @@ function renderLiveFacts(){
 }
 
 async function refreshHome(){
-  $("#activeTripLabel").textContent=`נסיעה פעילה: ${settings.trip}`;
+  $("#activeTripLabel").textContent=`נסיעה פעילה: ${settings.trip} · v1.1`;
   const arr=(await dbAll()).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
   const trip=arr.filter(x=>x.trip===settings.trip);
   const review=trip.filter(x=>x.needsReview).length, dup=trip.filter(x=>x.duplicateOf).length;
